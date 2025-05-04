@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>脳トレナンプレ</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+      margin: 0;
+    }
+    h1, h2 {
+      margin: 0.5em;
+    }
+    #mode-select, #sheet-select, #game-screen, #giveup-screen, #update-area {
+      display: none;
+      padding: 10px;
+    }
+    table {
+      border-collapse: collapse;
+      margin: 10px auto;
+    }
+    td {
+      width: 40px;
+      height: 40px;
+      text-align: center;
+      vertical-align: middle;
+      border: 1px solid #888;
+      font-size: 20px;
+    }
+    .border-right {
+      border-right: 2px solid #000;
+    }
+    .border-bottom {
+      border-bottom: 2px solid #000;
+    }
+    .selected {
+      background-color: #add8e6;
+    }
+    .fixed {
+      color: #000;
+      font-weight: bold;
+    }
+    .editable {
+      color: #555;
+      cursor: pointer;
+    }
+    .conflict {
+      background-color: #fdd !important;
+    }
+    .error-existing {
+      border: 2px solid red;
+    }
+    #number-buttons button {
+      margin: 3px;
+      font-size: 16px;
+    }
+    #result.success {
+      color: green;
+      font-weight: bold;
+    }
+    #result.fail {
+      color: red;
+      font-weight: bold;
+    }
+    #brain-count, #total-stars {
+      font-size: 18px;
+      font-weight: bold;
+    }
+    #opening {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      background: white;
+      overflow: hidden;
+    }
+    #logo {
+      position: absolute;
+      top: -100px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 36px;
+      font-weight: bold;
+    }
+    #title {
+      position: absolute;
+      left: -100%;
+      top: 50vh;
+      transform: translateY(-50%);
+      font-size: 28px;
+    }
+    #nampure {
+      position: absolute;
+      top: 100vh;
+      left: 100vw;
+      font-size: 32px;
+      font-weight: bold;
+      opacity: 0;
+    }
+    #star-info-popup {
+      display: none;
+      background: #fff;
+      border: 1px solid #aaa;
+      padding: 10px;
+      margin: 10px auto;
+      width: 80%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="opening">
+    <div id="logo">脳トレナンプレ</div>
+    <div id="title">頭の体操、始めよう</div>
+    <div id="nampure">Let's Sudoku!</div>
+  </div>
+
+  <div id="mode-select">
+    <h2>モード選択</h2>
+    <p>🧠 <span id="brain-count">0</span>個 / ⭐️ <span id="total-stars">0</span>個</p>
+    <p>称号: <span id="current-title">初心者</span></p>
+    <button onclick="selectMode('easy')">かんたん</button>
+    <button onclick="selectMode('normal')">ふつう</button>
+    <button onclick="selectMode('hard')">むずかしい</button>
+    <button onclick="selectMode('toudai')">東大脳</button>
+    <button id="stanford-btn" onclick="selectMode('stanford')">スタンフォード脳</button>
+    <p id="stanford-note">※🧠50個以上で解放されます</p>
+    <button onclick="toggleStarInfo()">⭐️とは？</button>
+    <div id="star-info-popup">
+      <p>タイムが早いほど⭐️が多くもらえる！</p>
+      <ul style="text-align: left;">
+        <li>3分以内：⭐️3</li>
+        <li>10分以内：⭐️2</li>
+        <li>それ以上：⭐️1</li>
+      </ul>
+    </div>
+    <div id="update-area">
+      <button id="manual-update-btn" onclick="manualUpdate()">データ更新</button>
+      <p id="update-loading" style="display:none;">更新中...</p>
+    </div>
+  </div>
+
+  <div id="sheet-select">
+    <h2 id="sheet-title"></h2>
+    <div id="sheet-list"></div>
+    <button onclick="backToMode()">← モード選択へ</button>
+  </div>
+
+  <div id="game-screen">
+    <h2 id="game-title">ゲーム画面</h2>
+    <table id="sudoku-board"></table>
+    <div id="number-buttons"></div>
+    <div id="result"></div>
+    <button id="check-answer-btn">答え合わせ</button>
+    <button id="give-up-btn">あきらめる</button>
+  </div>
+
+  <div id="giveup-screen">
+    <h2 id="giveup-message"></h2>
+  </div>
+
+  <script>
+    // JavaScriptは次の部で送るで！
+  </script>
+</body>
+</html>
+
+<script>
+const DIFFICULTIES = ["easy", "normal", "hard", "toudai", "stanford"];
+let brainCount = parseInt(localStorage.getItem("brainCount") || "0");
+let starsData = JSON.parse(localStorage.getItem("starsData") || "{}");
+
+function getCurrentWeek() {
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const days = Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24));
+  return Math.floor(days / 7);
+}
+
+function generateFullBoard() {
+  const board = Array.from({ length: 9 }, () => Array(9).fill(null));
+  solveSudoku(board);
+  return board;
+}
+
+function solveSudoku(board) {
+  for (let row = 0; row < 9; row++) {
+    for (let col = 0; col < 9; col++) {
+      if (board[row][col] === null) {
+        const nums = shuffle([1,2,3,4,5,6,7,8,9]);
+        for (const num of nums) {
+          if (isValid(board, row, col, num)) {
+            board[row][col] = num;
+            if (solveSudoku(board)) return true;
+            board[row][col] = null;
+          }
+        }
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function isValid(board, row, col, num) {
+  for (let i = 0; i < 9; i++) {
+    if (board[row][i] === num || board[i][col] === num) return false;
+  }
+  const sr = Math.floor(row / 3) * 3;
+  const sc = Math.floor(col / 3) * 3;
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      if (board[sr + r][sc + c] === num) return false;
+    }
+  }
+  return true;
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function generatePuzzleWithHoles(board, holes) {
+  const puzzle = JSON.parse(JSON.stringify(board));
+  let attempts = 0;
+  while (holes > 0 && attempts < 1000) {
+    const row = Math.floor(Math.random() * 9);
+    const col = Math.floor(Math.random() * 9);
+    if (puzzle[row][col] !== null) {
+      puzzle[row][col] = null;
+      holes--;
+    }
+    attempts++;
+  }
+  return puzzle;
+}
+
+function getRandomInRange([min, max]) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+</script>
+
+<script>
+function generatePuzzlesForAllModes() {
+  const currentWeek = getCurrentWeek();
+  const levels = {
+    easy: 25,
+    normal: 35,
+    hard: 45,
+    toudai: getRandomInRange([51, 54]),
+    stanford: getRandomInRange([53, 55])
+  };
+
+  for (const level in levels) {
+    const holes = levels[level];
+    const count = level === "stanford" ? 5 : 10;
+    const puzzles = [];
+    const solutions = [];
+
+    for (let i = 0; i < count; i++) {
+      const solution = generateFullBoard();
+      const puzzle = generatePuzzleWithHoles(solution, holes);
+      puzzles.push(puzzle);
+      solutions.push(solution);
+    }
+
+    localStorage.setItem(`puzzles_${level}_${currentWeek}`, JSON.stringify(puzzles));
+    localStorage.setItem(`solutions_${level}_${currentWeek}`, JSON.stringify(solutions));
+  }
+
+  localStorage.setItem("lastGeneratedWeek", currentWeek);
+  deleteOldWeekData(currentWeek);
+}
+
+function deleteOldWeekData(currentWeek) {
+  for (let week = 0; week < currentWeek; week++) {
+    for (const level of DIFFICULTIES) {
+      localStorage.removeItem(`puzzles_${level}_${week}`);
+      localStorage.removeItem(`solutions_${level}_${week}`);
+    }
+  }
+}
+
+function checkForNewWeek() {
+  const currentWeek = getCurrentWeek();
+  const lastGeneratedWeek = parseInt(localStorage.getItem("lastGeneratedWeek") || "-1");
+  if (currentWeek !== lastGeneratedWeek) {
+    generatePuzzlesForAllModes();
+  }
+}
+
+function checkForDataOrShowUpdateButton() {
+  const updateBtn = document.getElementById("manual-update-btn");
+  const updateArea = document.getElementById("update-area");
+  updateArea.style.display = "block";
+  updateBtn.style.display = "inline-block";
+}
+
+function manualUpdate() {
+  const loadingText = document.getElementById("update-loading");
+  loadingText.style.display = "block";
+  setTimeout(() => {
+    generatePuzzlesForAllModes();
+    loadAllPuzzles();
+    loadingText.style.display = "none";
+  }, 300);
+}
+
+function generateAndReload() {
+  const btn = document.getElementById("manual-update-btn");
+  btn.disabled = true;
+  btn.textContent = "更新中...";
+  setTimeout(() => {
+    generatePuzzlesForAllModes();
+    loadAllPuzzles();
+    btn.textContent = "更新完了！";
+  }, 500);
+}
+</script>
+
+<script>
+function getCurrentWeek() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 1);
+  const diff = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+  return Math.floor(diff / 7);
+}
+
+function getRandomInRange([min, max]) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function generateFullBoard() {
+  const board = Array.from({ length: 9 }, () => Array(9).fill(null));
+  solveSudoku(board);
+  return board;
+}
+
+function solveSudoku(board) {
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      if (board[r][c] === null) {
+        const nums = shuffle([1,2,3,4,5,6,7,8,9]);
+        for (const num of nums) {
+          if (isValid(board, r, c, num)) {
+            board[r][c] = num;
+            if (solveSudoku(board)) return true;
+            board[r][c] = null;
+          }
+        }
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function isValid(board, row, col, num) {
+  for (let i = 0; i < 9; i++) {
+    if (board[row][i] === num || board[i][col] === num) return false;
+  }
+  const sr = Math.floor(row / 3) * 3;
+  const sc = Math.floor(col / 3) * 3;
+  for (let r = sr; r < sr + 3; r++) {
+    for (let c = sc; c < sc + 3; c++) {
+      if (board[r][c] === num) return false;
+    }
+  }
+  return true;
+}
+
+function generatePuzzleWithHoles(board, holes) {
+  const puzzle = board.map(row => [...row]);
+  let attempts = 0;
+  while (holes > 0 && attempts < 1000) {
+    const r = Math.floor(Math.random() * 9);
+    const c = Math.floor(Math.random() * 9);
+    if (puzzle[r][c] !== null) {
+      puzzle[r][c] = null;
+      holes--;
+    }
+    attempts++;
+  }
+  return puzzle;
+}
+
+let brainCount = parseInt(localStorage.getItem("brainCount") || "0");
+let starsData = JSON.parse(localStorage.getItem("starsData") || "{}");
+
+function updateBrainUI() {
+  document.getElementById("brain-count").textContent = brainCount;
+  document.getElementById("total-stars").textContent = getTotalStars();
+  document.getElementById("current-title").textContent = getTitleFromBrainCount(brainCount);
+  const stanfordBtn = document.getElementById("stanford-btn");
+  const stanfordNote = document.getElementById("stanford-note");
+  if (brainCount >= 50) {
+    stanfordBtn.disabled = false;
+    stanfordNote.textContent = "挑戦できます！";
+    stanfordNote.style.color = "green";
+  } else {
+    stanfordBtn.disabled = true;
+    stanfordNote.textContent = "※🧠50個以上で解放されます";
+    stanfordNote.style.color = "#d32f2f";
+  }
+}
+
+function getTotalStars() {
+  return Object.values(starsData).reduce((sum, val) => sum + val, 0);
+}
+
+function getTitleFromBrainCount(count) {
+  if (count >= 100) return "超人";
+  if (count >= 75) return "天才";
+  if (count >= 50) return "賢者";
+  if (count >= 30) return "秀才";
+  if (count >= 15) return "努力家";
+  return "初心者";
+}
+
+window.onload = () => {
+  const logo = document.getElementById("logo");
+  const title = document.getElementById("title");
+  const nampure = document.getElementById("nampure");
+
+  logo.style.top = "25vh";
+  logo.style.transition = "top 1.2s ease-out";
+  setTimeout(() => {
+    logo.style.transition = "transform 0.3s ease-out";
+    logo.style.transform = "translateX(-50%) translateY(-10px)";
+  }, 1200);
+  setTimeout(() => {
+    logo.style.transform = "translateX(-50%) translateY(0)";
+  }, 1500);
+  setTimeout(() => {
+    title.style.transition = "left 0.5s cubic-bezier(0.15, 1.6, 0.4, 1)";
+    title.style.left = "50%";
+    title.style.transform = "translateX(-50%)";
+  }, 2500);
+  setTimeout(() => {
+    logo.style.opacity = "0";
+    title.style.opacity = "0";
+  }, 4500);
+  setTimeout(() => {
+    nampure.style.transition = "top 0.8s ease, left 0.8s ease, opacity 0.8s ease";
+    nampure.style.top = "10vh";
+    nampure.style.left = "50%";
+    nampure.style.opacity = "1";
+  }, 5300);
+  setTimeout(() => {
+    nampure.style.top = "-100vh";
+    nampure.style.left = "-100vw";
+    nampure.style.opacity = "0";
+  }, 6800);
+  setTimeout(() => {
+    document.getElementById("opening").style.display = "none";
+    document.getElementById("mode-select").style.display = "block";
+    updateBrainUI();
+    checkForDataOrShowUpdateButton();
+    checkForNewWeek();
+    loadAllPuzzles?.();
+  }, 8200);
+};
+</script>
